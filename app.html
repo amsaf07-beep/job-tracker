@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Job Tracker</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+header{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:14px 18px; border-bottom:1px solid var(--border); background:var(--panel);
+  position:sticky; top:0; z-index:5;
+}
+header h1{font-size:17px; margin:0;}
+#who{font-size:12px; color:var(--muted);}
+#board{
+  display:flex; gap:12px; padding:16px; overflow-x:auto; align-items:flex-start;
+  height:calc(100vh - 57px);
+}
+.col{
+  background:var(--col-bg); border-radius:10px; min-width:230px; max-width:230px;
+  display:flex; flex-direction:column; max-height:100%;
+}
+.col-head{
+  padding:10px 12px; font-size:13px; font-weight:700; display:flex;
+  justify-content:space-between; align-items:center; border-bottom:1px solid var(--border);
+}
+.count{font-weight:600; color:var(--muted); font-size:12px;}
+.col-body{padding:8px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:8px;}
+.card{
+  background:var(--panel); border:1px solid var(--border); border-radius:8px;
+  padding:9px 10px; box-shadow:var(--shadow); font-size:13px;
+}
+.card .title{font-weight:600; margin-bottom:2px;}
+.card .company{color:var(--muted); font-size:12px; margin-bottom:4px;}
+.card a{font-size:12px; text-decoration:none;}
+.card .notes{font-size:12px; color:var(--muted); margin-top:4px; white-space:pre-wrap;}
+.card .row{display:flex; justify-content:space-between; align-items:center; margin-top:8px; gap:4px;}
+.card .row button{padding:3px 7px; font-size:12px;}
+.card .del{color:var(--danger); border-color:var(--danger); background:transparent;}
+.empty{color:var(--muted); font-size:12px; padding:6px 2px;}
+#overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,.4); display:none;
+  align-items:center; justify-content:center; z-index:10; padding:16px;
+}
+#overlay.open{display:flex;}
+#modal{
+  background:var(--panel); border-radius:10px; padding:18px; width:100%; max-width:360px;
+  border:1px solid var(--border);
+}
+#modal h2{margin:0 0 14px; font-size:16px;}
+#modal textarea{min-height:60px; resize:vertical;}
+.actions{display:flex; justify-content:flex-end; gap:8px; margin-top:4px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Job Tracker</h1>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span id="who"></span>
+    <button class="btn-primary" id="addBtn">+ Add job</button>
+    <button id="signOutBtn">Sign out</button>
+  </div>
+</header>
+<div id="board"></div>
+
+<div id="overlay">
+  <div id="modal">
+    <h2>Add job</h2>
+    <div class="field"><label>Job title *</label><input id="f-title"></div>
+    <div class="field"><label>Company</label><input id="f-company"></div>
+    <div class="field"><label>Job link</label><input id="f-link" placeholder="https://..."></div>
+    <div class="field"><label>Notes</label><textarea id="f-notes"></textarea></div>
+    <div class="actions">
+      <button id="cancelBtn">Cancel</button>
+      <button class="btn-primary" id="saveBtn">Add to board</button>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const STAGES = ["New Job","Seen","Need Resume","Resume Prepared","Applied","In Interview","Offer Generated"];
+let jobs = [];
+let userId = null;
+
+function escapeHtml(s){
+  return String(s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function render(){
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  STAGES.forEach((stage, idx) => {
+    const colJobs = jobs.filter(j => j.stage === stage);
+    const col = document.createElement("div");
+    col.className = "col";
+    col.innerHTML =
+      '<div class="col-head"><span>' + escapeHtml(stage) + '</span><span class="count">' + colJobs.length + '</span></div>' +
+      '<div class="col-body"></div>';
+    board.appendChild(col);
+    const body = col.querySelector(".col-body");
+    if (colJobs.length === 0){
+      const e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "No jobs here";
+      body.appendChild(e);
+    }
+    colJobs.forEach(j => body.appendChild(cardEl(j, idx)));
+  });
+}
+
+function cardEl(job, stageIdx){
+  const card = document.createElement("div");
+  card.className = "card";
+  let html = '<div class="title">' + escapeHtml(job.title || "Untitled role") + '</div>';
+  if (job.company) html += '<div class="company">' + escapeHtml(job.company) + '</div>';
+  if (job.link) html += '<a href="' + escapeHtml(job.link) + '" target="_blank" rel="noopener">View posting</a>';
+  if (job.notes) html += '<div class="notes">' + escapeHtml(job.notes) + '</div>';
+  html += '<div class="row">' +
+    '<button data-act="back" ' + (stageIdx === 0 ? "disabled" : "") + '>&larr;</button>' +
+    '<button data-act="del" class="del">Delete</button>' +
+    '<button data-act="fwd" ' + (stageIdx === STAGES.length - 1 ? "disabled" : "") + '>&rarr;</button>' +
+    '</div>';
+  card.innerHTML = html;
+  card.querySelector('[data-act="back"]').onclick = () => moveStage(job.id, stageIdx - 1);
+  card.querySelector('[data-act="fwd"]').onclick = () => moveStage(job.id, stageIdx + 1);
+  card.querySelector('[data-act="del"]').onclick = () => deleteJob(job.id);
+  return card;
+}
+
+async function loadJobs(){
+  const { data, error } = await sb.from("jobs").select("*").order("created_at", { ascending: false });
+  if (error){ console.error(error); return; }
+  jobs = data;
+  render();
+}
+
+async function moveStage(id, newIdx){
+  if (newIdx < 0 || newIdx >= STAGES.length) return;
+  const { error } = await sb.from("jobs").update({ stage: STAGES[newIdx] }).eq("id", id);
+  if (error) console.error(error);
+}
+
+async function deleteJob(id){
+  const { error } = await sb.from("jobs").delete().eq("id", id);
+  if (error) console.error(error);
+}
+
+function openModal(){
+  document.getElementById("overlay").classList.add("open");
+  document.getElementById("f-title").value = "";
+  document.getElementById("f-company").value = "";
+  document.getElementById("f-link").value = "";
+  document.getElementById("f-notes").value = "";
+  document.getElementById("f-title").focus();
+}
+function closeModal(){ document.getElementById("overlay").classList.remove("open"); }
+
+async function saveJob(){
+  const title = document.getElementById("f-title").value.trim();
+  if (!title){ document.getElementById("f-title").focus(); return; }
+  const payload = {
+    title,
+    company: document.getElementById("f-company").value.trim(),
+    link: document.getElementById("f-link").value.trim(),
+    notes: document.getElementById("f-notes").value.trim(),
+    stage: STAGES[0],
+    user_id: userId
+  };
+  closeModal();
+  const { error } = await sb.from("jobs").insert(payload);
+  if (error) console.error(error);
+}
+
+document.getElementById("addBtn").onclick = openModal;
+document.getElementById("cancelBtn").onclick = closeModal;
+document.getElementById("saveBtn").onclick = saveJob;
+document.getElementById("overlay").onclick = (e) => { if (e.target.id === "overlay") closeModal(); };
+document.getElementById("signOutBtn").onclick = async () => { await sb.auth.signOut(); location.href = "index.html"; };
+
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session){ location.href = "index.html"; return; }
+  userId = session.user.id;
+  document.getElementById("who").textContent = session.user.email;
+
+  await loadJobs();
+
+  // Live updates: this account's own rows only (RLS enforces that server-side too)
+  sb.channel("jobs-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, () => loadJobs())
+    .subscribe();
+})();
+</script>
+</body>
+</html>

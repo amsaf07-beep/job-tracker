@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Tracker — sign in</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+.wrap{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;}
+.card{
+  background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  padding:28px; width:100%; max-width:360px; box-shadow:var(--shadow);
+}
+.card h1{font-size:20px; margin:0 0 4px;}
+.card p.sub{color:var(--muted); font-size:13px; margin:0 0 20px;}
+.toggle{font-size:13px; text-align:center; margin-top:14px; color:var(--muted);}
+.toggle button{border:none; background:none; color:var(--accent); padding:0; font-weight:600;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1 id="heading">Sign in</h1>
+    <p class="sub" id="sub">Track your job search, from your own account.</p>
+    <div class="field">
+      <label>Email</label>
+      <input id="email" type="email" autocomplete="email">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input id="password" type="password" autocomplete="current-password">
+    </div>
+    <div class="error" id="error"></div>
+    <button class="btn-primary" id="submitBtn" style="width:100%;">Sign in</button>
+    <div class="toggle">
+      <span id="toggleText">Don't have an account?</span>
+      <button id="toggleBtn">Create one</button>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let mode = "signin";
+
+const els = {
+  heading: document.getElementById("heading"),
+  sub: document.getElementById("sub"),
+  email: document.getElementById("email"),
+  password: document.getElementById("password"),
+  error: document.getElementById("error"),
+  submitBtn: document.getElementById("submitBtn"),
+  toggleText: document.getElementById("toggleText"),
+  toggleBtn: document.getElementById("toggleBtn")
+};
+
+function setMode(next){
+  mode = next;
+  els.error.textContent = "";
+  if (mode === "signin"){
+    els.heading.textContent = "Sign in";
+    els.sub.textContent = "Track your job search, from your own account.";
+    els.submitBtn.textContent = "Sign in";
+    els.toggleText.textContent = "Don't have an account?";
+    els.toggleBtn.textContent = "Create one";
+  } else {
+    els.heading.textContent = "Create your account";
+    els.sub.textContent = "Your board is private to you.";
+    els.submitBtn.textContent = "Create account";
+    els.toggleText.textContent = "Already have an account?";
+    els.toggleBtn.textContent = "Sign in";
+  }
+}
+els.toggleBtn.onclick = () => setMode(mode === "signin" ? "signup" : "signin");
+
+async function submit(){
+  const email = els.email.value.trim();
+  const password = els.password.value;
+  els.error.textContent = "";
+  if (!email || !password){ els.error.textContent = "Enter an email and password."; return; }
+  els.submitBtn.disabled = true;
+  try{
+    if (mode === "signin"){
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      location.href = "app.html";
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      if (data.session){
+        location.href = "app.html";
+      } else {
+        els.error.style.color = "var(--muted)";
+        els.error.textContent = "Check your email to confirm your account, then sign in.";
+        setMode("signin");
+      }
+    }
+  }catch(e){
+    els.error.style.color = "var(--danger)";
+    els.error.textContent = e.message || "Something went wrong.";
+  }finally{
+    els.submitBtn.disabled = false;
+  }
+}
+els.submitBtn.onclick = submit;
+els.password.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+
+// Already signed in? skip straight to the board.
+(async () => {
+  const { data } = await sb.auth.getSession();
+  if (data.session) location.href = "app.html";
+})();
+</script>
+</body>
+</html>
